@@ -3,7 +3,7 @@
 use std::{io::ErrorKind, path::Path, process::Stdio, time::Duration};
 
 use crate::{
-    config::{Config, JailerMode},
+    config::{self, Config, JailerMode},
     Error,
 };
 use futures_util::TryFutureExt;
@@ -162,10 +162,11 @@ impl<'m> Machine<'m> {
 
         self.cleanup_before_starting().await?;
 
+
         // FIXME: Assuming jailer for now.
-        let jailer = self.config.jailer_cfg.as_mut().expect("no jailer config");
+        let jailer = self.config.jailer_cfg.as_ref().expect("no jailer config");
         let jailer_bin = jailer.jailer_binary().to_owned();
-        let (mut cmd, daemonize_arg, stdin, stdout, stderr) = match &mut jailer.mode {
+        let (mut cmd, daemonize_arg, stdin, stdout, stderr) = match &jailer.mode {
             JailerMode::Daemon => (
                 Command::new(jailer.jailer_binary()),
                 Some("--daemonize"),
@@ -173,12 +174,12 @@ impl<'m> Machine<'m> {
                 Stdio::null(),
                 Stdio::null(),
             ),
-            JailerMode::Attached(stdio) => (
+            JailerMode::Attached => (
                 Command::new(jailer_bin),
                 None,
-                stdio.stdin.take().unwrap_or_else(Stdio::inherit),
-                stdio.stdout.take().unwrap_or_else(Stdio::inherit),
-                stdio.stderr.take().unwrap_or_else(Stdio::inherit),
+                Stdio::inherit(),
+                Stdio::inherit(),
+                Stdio::inherit(),
             ),
             JailerMode::Tmux(session_name) => {
                 let session_name = session_name
@@ -200,6 +201,11 @@ impl<'m> Machine<'m> {
         if let Some(daemonize_arg) = daemonize_arg {
             cmd.arg(daemonize_arg);
         }
+
+        if let Some(net_ns) = self.config.net_ns() {
+            cmd.args(["--netns", net_ns]);
+        }
+
         let cmd = cmd
             .args([
                 "--id",
@@ -288,7 +294,7 @@ impl<'m> Machine<'m> {
             MachineState::RUNNING { pid } => pid,
         };
         match self.config.jailer_cfg().expect("no jailer config").mode() {
-            JailerMode::Daemon | JailerMode::Attached(_) => {
+            JailerMode::Daemon | JailerMode::Attached => {
                 let killed = task::spawn_blocking(move || {
                     let mut sys = System::new();
                     if sys.refresh_process_specifics(Pid::from_u32(pid), ProcessRefreshKind::new())
