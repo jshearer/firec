@@ -12,7 +12,7 @@ use serde_json::json;
 use sysinfo::{Pid, PidExt, ProcessExt, ProcessRefreshKind, System, SystemExt};
 use tokio::{
     fs::{self, copy, DirBuilder},
-    process::{ChildStderr, ChildStdout, Command},
+    process::{Child, ChildStderr, ChildStdout, Command},
     task,
     time::sleep,
 };
@@ -156,7 +156,7 @@ impl<'m> Machine<'m> {
 
     /// Start the machine.
     #[instrument(skip_all)]
-    pub async fn start(&mut self) -> Result<(Option<ChildStdout>, Option<ChildStderr>), Error> {
+    pub async fn start(&mut self) -> Result<Child, Error> {
         let vm_id = self.config.vm_id().to_string();
         info!("Starting machine with VM ID `{vm_id}`");
 
@@ -275,7 +275,7 @@ impl<'m> Machine<'m> {
 
         trace!("{vm_id}: VM started successfully.");
 
-        Ok((child.stdout.take(), child.stderr.take()))
+        Ok(child)
     }
 
     /// Forcefully shutdown the machine.
