@@ -12,7 +12,7 @@ use serde_json::json;
 use sysinfo::{Pid, PidExt, ProcessExt, ProcessRefreshKind, System, SystemExt};
 use tokio::{
     fs::{self, copy, DirBuilder},
-    process::Command,
+    process::{ChildStderr, ChildStdout, Command},
     task,
     time::sleep,
 };
@@ -156,12 +156,11 @@ impl<'m> Machine<'m> {
 
     /// Start the machine.
     #[instrument(skip_all)]
-    pub async fn start(&mut self) -> Result<(), Error> {
+    pub async fn start(&mut self) -> Result<(Option<ChildStdout>, Option<ChildStderr>), Error> {
         let vm_id = self.config.vm_id().to_string();
         info!("Starting machine with VM ID `{vm_id}`");
 
         self.cleanup_before_starting().await?;
-
 
         // FIXME: Assuming jailer for now.
         let jailer = self.config.jailer_cfg.as_ref().expect("no jailer config");
@@ -171,8 +170,8 @@ impl<'m> Machine<'m> {
                 Command::new(jailer.jailer_binary()),
                 Some("--daemonize"),
                 Stdio::null(),
-                Stdio::null(),
-                Stdio::null(),
+                Stdio::piped(),
+                Stdio::piped(),
             ),
             JailerMode::Attached => (
                 Command::new(jailer_bin),
@@ -276,7 +275,7 @@ impl<'m> Machine<'m> {
 
         trace!("{vm_id}: VM started successfully.");
 
-        Ok(())
+        Ok((child.stdout.take(), child.stderr.take()))
     }
 
     /// Forcefully shutdown the machine.
