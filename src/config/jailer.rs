@@ -67,7 +67,7 @@ impl<'j> Jailer<'j> {
 pub enum JailerMode<'j> {
     /// The jailer child process will run attached to the parent process.
     #[derivative(Default)]
-    Attached,
+    Attached(Stdio),
     /// Calls setsid() and redirect stdin, stdout, and stderr to /dev/null.
     Daemon,
     /// Launch the jailer in a tmux session.

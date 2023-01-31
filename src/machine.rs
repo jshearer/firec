@@ -162,23 +162,25 @@ impl<'m> Machine<'m> {
 
         self.cleanup_before_starting().await?;
 
+        let network_ns = self.config.net_ns().map(|s| s.to_owned());
+
         // FIXME: Assuming jailer for now.
-        let jailer = self.config.jailer_cfg.as_ref().expect("no jailer config");
+        let jailer = self.config.jailer_cfg.as_mut().expect("no jailer config");
         let jailer_bin = jailer.jailer_binary().to_owned();
-        let (mut cmd, daemonize_arg, stdin, stdout, stderr) = match &jailer.mode {
+        let (mut cmd, daemonize_arg, stdin, stdout, stderr) = match &mut jailer.mode {
             JailerMode::Daemon => (
                 Command::new(jailer.jailer_binary()),
                 Some("--daemonize"),
                 Stdio::null(),
-                Stdio::piped(),
-                Stdio::piped(),
+                Stdio::null(),
+                Stdio::null(),
             ),
-            JailerMode::Attached => (
+            JailerMode::Attached(stdio) => (
                 Command::new(jailer_bin),
                 None,
-                Stdio::inherit(),
-                Stdio::inherit(),
-                Stdio::inherit(),
+                stdio.stdin.take().unwrap_or_else(Stdio::inherit),
+                stdio.stdout.take().unwrap_or_else(Stdio::inherit),
+                stdio.stderr.take().unwrap_or_else(Stdio::inherit),
             ),
             JailerMode::Tmux(session_name) => {
                 let session_name = session_name
@@ -201,8 +203,8 @@ impl<'m> Machine<'m> {
             cmd.arg(daemonize_arg);
         }
 
-        if let Some(net_ns) = self.config.net_ns() {
-            cmd.args(["--netns", net_ns]);
+        if let Some(net_ns) = network_ns {
+            cmd.args(["--netns", net_ns.as_ref()]);
         }
 
         let cmd = cmd
@@ -293,7 +295,7 @@ impl<'m> Machine<'m> {
             MachineState::RUNNING { pid } => pid,
         };
         match self.config.jailer_cfg().expect("no jailer config").mode() {
-            JailerMode::Daemon | JailerMode::Attached => {
+            JailerMode::Daemon | JailerMode::Attached(_) => {
                 let killed = task::spawn_blocking(move || {
                     let mut sys = System::new();
                     if sys.refresh_process_specifics(Pid::from_u32(pid), ProcessRefreshKind::new())
